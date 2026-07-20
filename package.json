@@ -1,0 +1,21 @@
+{
+  "name": "lead-intake-pipeline",
+  "version": "1.0.0",
+  "description": "A small business lead intake form with an admin dashboard for tracking follow-ups.",
+  "main": "backend/server.js",
+  "scripts": {
+    "start": "node backend/server.js",
+    "dev": "nodemon backend/server.js",
+    "db:init": "psql $DATABASE_URL -f backend/db/schema.sql"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "pg": "^8.12.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  }
+}
