@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS leads (
   business_name VARCHAR(255),
   service_interest VARCHAR(255),
   message TEXT,
-  status VARCHAR(50) DEFAULT 'new',
+  status VARCHAR(50) DEFAULT 'new' CHECK (status IN ('new', 'contacted', 'qualified', 'lost')),
   source VARCHAR(100) DEFAULT 'website',
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
