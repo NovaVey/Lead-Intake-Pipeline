@@ -9,6 +9,9 @@
     "db:init": "psql $DATABASE_URL -f backend/db/schema.sql"
   },
   "license": "MIT",
+  "engines": {
+    "node": "22.x"
+  },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",

@@ -44,6 +44,18 @@ Lead Intake Pipeline is a lightweight web application that helps small businesse
 
    Then open [http://localhost:3000](http://localhost:3000) in your browser.
 
+## Deployment
+
+The app deploys to [Railway](https://railway.com) with no custom build configuration — Railway auto-detects a Node app from `package.json` and runs `npm install` then `npm start`.
+
+1. Prerequisites: a Railway account, and a `DATABASE_URL` for a reachable Postgres instance (this project uses Supabase — the same value you're using locally in `.env`).
+2. In the Railway dashboard: **New Project → Deploy from GitHub repo**, and select this repository.
+3. In the service's **Variables** tab, add `DATABASE_URL` with your Postgres connection string. Railway automatically injects its own `PORT` at runtime, so nothing needs to be set for that.
+4. Once deployed, go to **Settings → Networking → Public Networking → Generate Domain** to get a public `*.up.railway.app` URL. This step is required and easy to miss — unlike some other hosts, Railway does not assign a public URL automatically.
+5. No `/health` endpoint is needed: with no custom healthcheck path configured, Railway considers the deployment healthy as soon as the container starts.
+
+Note: `.nvmrc` is included as a courtesy for local development with `nvm`, but Railway itself does not read it — only the `engines.node` field in `package.json` affects the Railway build.
+
 ## API Endpoints
 
 | Method | Endpoint | Description |
