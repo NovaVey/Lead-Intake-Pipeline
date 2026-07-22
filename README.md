@@ -8,6 +8,7 @@ Lead Intake Pipeline is a lightweight web application that helps small businesse
 - Admin dashboard with status filters and lead counts
 - Expandable lead detail view for reviewing a lead at a glance
 - Follow-up logging with contact method and note
+- Lead deletion with a confirmation step, cascading to its follow-ups
 - PostgreSQL persistence for leads and follow-up history
 
 ## Stack
@@ -65,6 +66,7 @@ Note: `.nvmrc` is included as a courtesy for local development with `nvm`, but R
 | POST | `/api/leads` | Create a new lead (`name`, `email` required) |
 | PATCH | `/api/leads/:id/status` | Update a lead's status |
 | POST | `/api/leads/:id/follow-ups` | Add a follow-up note to a lead |
+| DELETE | `/api/leads/:id` | Delete a lead and its follow-ups |
 
 ## License
 

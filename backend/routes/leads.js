@@ -150,4 +150,26 @@ router.post('/:id/follow-ups', async (req, res) => {
   }
 });
 
+// DELETE /api/leads/:id
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!isValidId(id)) {
+      return res.status(400).json({ error: 'Invalid id' });
+    }
+
+    const result = await pool.query('DELETE FROM leads WHERE id = $1 RETURNING id', [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Lead not found' });
+    }
+
+    res.status(200).json({ id: result.rows[0].id, deleted: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 module.exports = router;
