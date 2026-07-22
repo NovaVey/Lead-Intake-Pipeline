@@ -570,6 +570,10 @@
     max-width: 160px;
   }
 
+  .btn-push-right {
+    margin-left: auto;
+  }
+
   .empty-state {
     text-align: center;
     padding: var(--space-6) var(--space-4);
@@ -1283,8 +1287,17 @@
     fuSubmitBtn.className = 'btn btn-primary btn-small';
     fuSubmitBtn.textContent = 'Log Follow-up';
 
+    var deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'btn btn-danger btn-small btn-push-right';
+    deleteBtn.textContent = 'Delete Lead';
+    deleteBtn.addEventListener('click', function () {
+      deleteLead(lead.id, deleteBtn, fuErrorBox);
+    });
+
     formRow.appendChild(methodSelect);
     formRow.appendChild(fuSubmitBtn);
+    formRow.appendChild(deleteBtn);
 
     fuForm.appendChild(fuErrorBox);
     fuForm.appendChild(noteField);
@@ -1297,26 +1310,6 @@
 
     fuSection.appendChild(fuForm);
     detailEl.appendChild(fuSection);
-
-    // Danger zone
-    var dangerSection = document.createElement('div');
-    dangerSection.className = 'detail-section';
-
-    var dangerErrorBox = document.createElement('div');
-    dangerErrorBox.className = 'alert alert-error';
-    dangerErrorBox.style.display = 'none';
-    dangerSection.appendChild(dangerErrorBox);
-
-    var deleteBtn = document.createElement('button');
-    deleteBtn.type = 'button';
-    deleteBtn.className = 'btn btn-danger btn-small';
-    deleteBtn.textContent = 'Delete Lead';
-    deleteBtn.addEventListener('click', function () {
-      deleteLead(lead.id, deleteBtn, dangerErrorBox);
-    });
-    dangerSection.appendChild(deleteBtn);
-
-    detailEl.appendChild(dangerSection);
   }
 
   function buildFollowUpItem(fu) {
