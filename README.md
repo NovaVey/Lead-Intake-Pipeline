@@ -4,6 +4,10 @@ Lead Intake Pipeline is a lightweight web application that helps small businesse
 
 ## Screenshots
 
+**Demo video**
+
+<video src="docs/demo-video.mp4" controls width="700">Demo video showing lead submission, status filtering, expanding a lead, changing status, and logging a follow-up.</video>
+
 **Public intake form**
 
 ![Public intake form](docs/screenshot-intake-form.png)
