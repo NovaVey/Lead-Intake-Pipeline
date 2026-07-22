@@ -2,6 +2,20 @@
 
 Lead Intake Pipeline is a lightweight web application that helps small businesses capture new sales leads through a public intake form and manage the follow-up process from a simple admin dashboard. Every submission is persisted to PostgreSQL, and staff can track lead status, log follow-up activity, and review a complete history for each lead without leaving the browser.
 
+## Screenshots
+
+**Public intake form**
+
+![Public intake form](docs/screenshot-intake-form.png)
+
+**Admin dashboard**
+
+![Admin dashboard with status tabs and lead cards](docs/screenshot-dashboard.png)
+
+**Expanded lead detail**
+
+![Expanded lead card showing status, follow-ups, and delete](docs/screenshot-lead-detail.png)
+
 ## Features
 
 - Public lead intake form for capturing new prospects
