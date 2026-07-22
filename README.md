@@ -50,8 +50,8 @@ The app deploys to [Railway](https://railway.com) with no custom build configura
 
 1. Prerequisites: a Railway account, and a `DATABASE_URL` for a reachable Postgres instance (this project uses Supabase — the same value you're using locally in `.env`).
 2. In the Railway dashboard: **New Project → Deploy from GitHub repo**, and select this repository.
-3. In the service's **Variables** tab, add `DATABASE_URL` with your Postgres connection string. Railway automatically injects its own `PORT` at runtime, so nothing needs to be set for that.
-4. Once deployed, go to **Settings → Networking → Public Networking → Generate Domain** to get a public `*.up.railway.app` URL. This step is required and easy to miss — unlike some other hosts, Railway does not assign a public URL automatically.
+3. In the service's **Variables** tab, add `DATABASE_URL` with your Postgres connection string. Don't add a `PORT` variable — leave it unset so the app falls back to listening on `3000` (see the next step).
+4. Once deployed, go to **Settings → Networking → Public Networking → Generate Domain**. This screen asks for a **Target port** and pre-fills `8080` — change it to `3000` to match the port the app is actually listening on (since no `PORT` variable was set). If you do add a `PORT` variable at some point, the Target port must be updated to match that same value, whatever it is. This step (generating the domain) is required and easy to miss — unlike some other hosts, Railway does not assign a public URL automatically.
 5. No `/health` endpoint is needed: with no custom healthcheck path configured, Railway considers the deployment healthy as soon as the container starts.
 
 Note: `.nvmrc` is included as a courtesy for local development with `nvm`, but Railway itself does not read it — only the `engines.node` field in `package.json` affects the Railway build.
