@@ -273,6 +273,38 @@
     font-size: 0.9rem;
   }
 
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 31, 61, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-4);
+    z-index: 1000;
+  }
+
+  .modal-dialog {
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    padding: var(--space-5);
+    max-width: 400px;
+    width: 100%;
+    box-shadow: 0 12px 40px rgba(15, 31, 61, 0.3);
+  }
+
+  .modal-dialog p {
+    margin-bottom: var(--space-4);
+    color: var(--text);
+    line-height: 1.5;
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-3);
+  }
+
   .alert-error {
     background: #fee2e2;
     color: #991b1b;
@@ -752,6 +784,16 @@
   </section>
 
 </main>
+
+<div class="modal-overlay" id="confirm-modal-overlay" style="display:none;">
+  <div class="modal-dialog">
+    <p id="confirm-modal-message"></p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-secondary btn-small" id="confirm-modal-cancel">Cancel</button>
+      <button type="button" class="btn btn-danger btn-small" id="confirm-modal-confirm">Delete</button>
+    </div>
+  </div>
+</div>
 
 <script>
 (function () {
@@ -1432,12 +1474,44 @@
     }
   }
 
+  // ---------- Custom confirm modal ----------
+  function showConfirmDialog(message) {
+    return new Promise(function (resolve) {
+      var overlay = qs('confirm-modal-overlay');
+      var messageEl = qs('confirm-modal-message');
+      var cancelBtn = qs('confirm-modal-cancel');
+      var confirmBtn = qs('confirm-modal-confirm');
+
+      messageEl.textContent = message;
+      overlay.style.display = 'flex';
+
+      function cleanup(result) {
+        overlay.style.display = 'none';
+        cancelBtn.removeEventListener('click', onCancel);
+        confirmBtn.removeEventListener('click', onConfirm);
+        overlay.removeEventListener('click', onOverlayClick);
+        document.removeEventListener('keydown', onKeydown);
+        resolve(result);
+      }
+      function onCancel() { cleanup(false); }
+      function onConfirm() { cleanup(true); }
+      function onOverlayClick(e) { if (e.target === overlay) cleanup(false); }
+      function onKeydown(e) { if (e.key === 'Escape') cleanup(false); }
+
+      cancelBtn.addEventListener('click', onCancel);
+      confirmBtn.addEventListener('click', onConfirm);
+      overlay.addEventListener('click', onOverlayClick);
+      document.addEventListener('keydown', onKeydown);
+    });
+  }
+
   // ---------- Delete lead ----------
   async function deleteLead(leadId, buttonEl, errorBoxEl) {
     var lead = state.leads.find(function (l) { return l.id === leadId; });
     var label = lead ? lead.name : ('lead #' + leadId);
 
-    if (!window.confirm('Delete ' + label + ' and all of its follow-ups? This cannot be undone.')) {
+    var confirmed = await showConfirmDialog('Delete ' + label + ' and all of its follow-ups? This cannot be undone.');
+    if (!confirmed) {
       return;
     }
 
