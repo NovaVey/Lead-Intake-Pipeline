@@ -339,6 +339,10 @@
 
   /* Dashboard */
   .dashboard-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
     margin-bottom: var(--space-4);
   }
 
@@ -351,6 +355,11 @@
   .dashboard-header p {
     margin: 0;
     color: var(--text-muted);
+  }
+
+  .login-card {
+    max-width: 400px;
+    margin: 0 auto;
   }
 
   .status-tabs {
@@ -427,6 +436,12 @@
   }
 
   .lead-summary:hover {
+    background: #fafbfd;
+  }
+
+  .lead-summary:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 2px var(--blue);
     background: #fafbfd;
   }
 
@@ -670,6 +685,11 @@
       gap: var(--space-2);
     }
 
+    .dashboard-header {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
     .lead-meta {
       width: 100%;
       justify-content: space-between;
@@ -766,27 +786,51 @@
 
   <!-- VIEW 2: ADMIN DASHBOARD -->
   <section id="view-dashboard" class="view">
-    <div class="dashboard-header">
-      <h1>Admin Dashboard</h1>
-      <p>Review incoming leads, update their status, and log follow-ups.</p>
+
+    <div id="dashboard-login-wrap" class="card login-card" style="display:none;">
+      <div class="form-header">
+        <h1>Admin Login</h1>
+        <p>Enter the admin password to access the dashboard.</p>
+      </div>
+
+      <div id="login-error" class="alert alert-error" style="display:none;" role="alert"></div>
+
+      <form id="login-form" novalidate>
+        <div class="field full">
+          <label for="f-admin-password">Password</label>
+          <input type="password" id="f-admin-password" name="password" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-primary" id="login-submit-btn">Log In</button>
+      </form>
     </div>
 
-    <div class="status-tabs" id="status-tabs">
-      <!-- tabs injected by JS -->
-    </div>
+    <div id="dashboard-main" style="display:none;">
+      <div class="dashboard-header">
+        <div>
+          <h1>Admin Dashboard</h1>
+          <p>Review incoming leads, update their status, and log follow-ups.</p>
+        </div>
+        <button type="button" class="btn btn-secondary btn-small" id="logout-btn">Log Out</button>
+      </div>
 
-    <div id="dashboard-content">
-      <div class="loading-state" id="dashboard-loading">
-        <div class="spinner"></div>
-        <div>Loading leads...</div>
+      <div class="status-tabs" id="status-tabs">
+        <!-- tabs injected by JS -->
+      </div>
+
+      <div id="dashboard-content">
+        <div class="loading-state" id="dashboard-loading">
+          <div class="spinner"></div>
+          <div>Loading leads...</div>
+        </div>
       </div>
     </div>
+
   </section>
 
 </main>
 
 <div class="modal-overlay" id="confirm-modal-overlay" style="display:none;">
-  <div class="modal-dialog">
+  <div class="modal-dialog" role="dialog" aria-modal="true" aria-describedby="confirm-modal-message">
     <p id="confirm-modal-message"></p>
     <div class="modal-actions">
       <button type="button" class="btn btn-secondary btn-small" id="confirm-modal-cancel">Cancel</button>
@@ -808,7 +852,8 @@
     activeFilter: 'all',
     expandedId: null,
     detailCache: {}, // id -> full lead object with follow_ups
-    dashboardLoaded: false
+    dashboardLoaded: false,
+    authenticated: false
   };
 
   // ---------- Helpers ----------
@@ -885,9 +930,7 @@
       dashView.classList.add('active');
       intakeBtn.classList.remove('active');
       dashBtn.classList.add('active');
-      if (!state.dashboardLoaded) {
-        loadLeads();
-      }
+      enterDashboard();
     } else {
       dashView.classList.remove('active');
       intakeView.classList.add('active');
@@ -898,6 +941,108 @@
 
   qs('nav-intake-btn').addEventListener('click', function () { showView('intake'); });
   qs('nav-dashboard-btn').addEventListener('click', function () { showView('dashboard'); });
+
+  // ---------- Admin auth ----------
+  var loginForm = qs('login-form');
+  var loginErrorBox = qs('login-error');
+  var loginSubmitBtn = qs('login-submit-btn');
+  var loginWrap = qs('dashboard-login-wrap');
+  var dashboardMain = qs('dashboard-main');
+
+  function setLoginError(msg) {
+    if (!msg) {
+      loginErrorBox.style.display = 'none';
+      loginErrorBox.textContent = '';
+      return;
+    }
+    loginErrorBox.textContent = msg;
+    loginErrorBox.style.display = 'block';
+  }
+
+  function showLogin(message) {
+    state.authenticated = false;
+    dashboardMain.style.display = 'none';
+    loginWrap.style.display = 'block';
+    setLoginError(message || null);
+    var pwField = qs('f-admin-password');
+    if (pwField) {
+      pwField.value = '';
+      pwField.focus();
+    }
+  }
+
+  function showDashboard() {
+    state.authenticated = true;
+    loginWrap.style.display = 'none';
+    dashboardMain.style.display = 'block';
+    if (!state.dashboardLoaded) {
+      loadLeads();
+    }
+  }
+
+  async function enterDashboard() {
+    try {
+      var result = await safeFetchJson('/api/auth/me');
+      if (result && result.authenticated) {
+        showDashboard();
+      } else {
+        showLogin();
+      }
+    } catch (err) {
+      showLogin('Could not verify login status. Please try again.');
+    }
+  }
+
+  // Called from dashboard action handlers when a request comes back 401
+  // (session expired or never established) so the user is dropped back
+  // to the login screen instead of seeing a confusing generic error.
+  function handleAuthExpired() {
+    state.dashboardLoaded = false;
+    showLogin('Your session expired. Please log in again.');
+  }
+
+  loginForm.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    setLoginError(null);
+
+    var password = qs('f-admin-password').value;
+    if (!password) {
+      setLoginError('Password is required.');
+      return;
+    }
+
+    loginSubmitBtn.disabled = true;
+    loginSubmitBtn.textContent = 'Logging in...';
+
+    try {
+      await safeFetchJson('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: password })
+      });
+      showDashboard();
+    } catch (err) {
+      setLoginError(err.message || 'Login failed. Please try again.');
+    } finally {
+      loginSubmitBtn.disabled = false;
+      loginSubmitBtn.textContent = 'Log In';
+    }
+  });
+
+  qs('logout-btn').addEventListener('click', async function () {
+    try {
+      await safeFetchJson('/api/auth/logout', { method: 'POST' });
+    } catch (err) {
+      // Even if the request itself fails, still clear local state below
+      // so the UI doesn't get stuck showing a dashboard the user can no
+      // longer act on.
+    }
+    state.leads = [];
+    state.detailCache = {};
+    state.expandedId = null;
+    state.dashboardLoaded = false;
+    showLogin();
+  });
 
   // ---------- Intake form ----------
   var intakeForm = qs('intake-form');
@@ -1021,6 +1166,10 @@
       renderTabs();
       renderLeadList();
     } catch (err) {
+      if (err.status === 401) {
+        handleAuthExpired();
+        return;
+      }
       content.innerHTML = '';
       var errBox = document.createElement('div');
       errBox.className = 'alert alert-error';
@@ -1137,10 +1286,25 @@
     var detail = document.createElement('div');
     detail.className = 'lead-detail';
     detail.setAttribute('data-role', 'detail');
+    detail.id = 'lead-detail-' + lead.id;
     card.appendChild(detail);
 
+    // Keyboard-accessible: the summary row acts as a toggle button, not
+    // just a click target, so the whole dashboard workflow (expand ->
+    // status -> follow-up) is reachable without a mouse.
+    summary.setAttribute('tabindex', '0');
+    summary.setAttribute('role', 'button');
+    summary.setAttribute('aria-expanded', state.expandedId === lead.id ? 'true' : 'false');
+    summary.setAttribute('aria-controls', detail.id);
+
     summary.addEventListener('click', function () {
-      toggleExpand(lead.id, card, detail);
+      toggleExpand(lead.id, card, detail, summary);
+    });
+    summary.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+        e.preventDefault();
+        toggleExpand(lead.id, card, detail, summary);
+      }
     });
 
     if (state.expandedId === lead.id) {
@@ -1150,19 +1314,25 @@
     return card;
   }
 
-  async function toggleExpand(leadId, cardEl, detailEl) {
+  async function toggleExpand(leadId, cardEl, detailEl, summaryEl) {
     if (state.expandedId === leadId) {
       state.expandedId = null;
       cardEl.classList.remove('expanded');
+      summaryEl.setAttribute('aria-expanded', 'false');
       return;
     }
 
     // collapse previously expanded card, if present in DOM
     var prevExpanded = document.querySelector('.lead-card.expanded');
-    if (prevExpanded) prevExpanded.classList.remove('expanded');
+    if (prevExpanded) {
+      prevExpanded.classList.remove('expanded');
+      var prevSummary = prevExpanded.querySelector('.lead-summary');
+      if (prevSummary) prevSummary.setAttribute('aria-expanded', 'false');
+    }
 
     state.expandedId = leadId;
     cardEl.classList.add('expanded');
+    summaryEl.setAttribute('aria-expanded', 'true');
     await renderDetailContent(leadId, detailEl);
   }
 
@@ -1178,6 +1348,10 @@
         state.detailCache[leadId] = fullLead;
       }
     } catch (err) {
+      if (err.status === 401) {
+        handleAuthExpired();
+        return;
+      }
       detailEl.innerHTML = '';
       var errBox = document.createElement('div');
       errBox.className = 'alert alert-error';
@@ -1420,6 +1594,10 @@
 
       setTimeout(function () { msgEl.textContent = ''; }, 1500);
     } catch (err) {
+      if (err.status === 401) {
+        handleAuthExpired();
+        return;
+      }
       msgEl.textContent = 'Error: ' + (err.message || 'could not update status');
       // revert select to previous value
       var lead = state.leads.find(function (l) { return l.id === leadId; });
@@ -1466,6 +1644,10 @@
       noteTextarea.value = '';
       methodSelect.value = 'Email';
     } catch (err) {
+      if (err.status === 401) {
+        handleAuthExpired();
+        return;
+      }
       errorBoxEl.textContent = err.message || 'Could not save follow-up.';
       errorBoxEl.style.display = 'block';
     } finally {
@@ -1481,9 +1663,13 @@
       var messageEl = qs('confirm-modal-message');
       var cancelBtn = qs('confirm-modal-cancel');
       var confirmBtn = qs('confirm-modal-confirm');
+      var previouslyFocused = document.activeElement;
 
       messageEl.textContent = message;
       overlay.style.display = 'flex';
+      // Default focus to Cancel, the non-destructive action, so a stray
+      // Enter press doesn't confirm the delete.
+      cancelBtn.focus();
 
       function cleanup(result) {
         overlay.style.display = 'none';
@@ -1491,12 +1677,30 @@
         confirmBtn.removeEventListener('click', onConfirm);
         overlay.removeEventListener('click', onOverlayClick);
         document.removeEventListener('keydown', onKeydown);
+        if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
+          previouslyFocused.focus();
+        }
         resolve(result);
       }
       function onCancel() { cleanup(false); }
       function onConfirm() { cleanup(true); }
       function onOverlayClick(e) { if (e.target === overlay) cleanup(false); }
-      function onKeydown(e) { if (e.key === 'Escape') cleanup(false); }
+      function onKeydown(e) {
+        if (e.key === 'Escape') {
+          cleanup(false);
+          return;
+        }
+        // Trap Tab/Shift+Tab within the two dialog buttons so keyboard
+        // focus can't leave the modal while it's open.
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          if (document.activeElement === cancelBtn) {
+            confirmBtn.focus();
+          } else {
+            cancelBtn.focus();
+          }
+        }
+      }
 
       cancelBtn.addEventListener('click', onCancel);
       confirmBtn.addEventListener('click', onConfirm);
@@ -1532,6 +1736,10 @@
       renderTabs();
       renderLeadList();
     } catch (err) {
+      if (err.status === 401) {
+        handleAuthExpired();
+        return;
+      }
       errorBoxEl.textContent = err.message || 'Could not delete lead.';
       errorBoxEl.style.display = 'block';
       buttonEl.disabled = false;

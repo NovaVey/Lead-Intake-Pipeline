@@ -1,5 +1,6 @@
 const express = require('express');
 const { Pool } = require('pg');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -11,7 +12,7 @@ const isValidId = (id) => /^\d+$/.test(id);
 
 // GET /api/leads
 // Optional query param: ?status=new|contacted|qualified|lost
-router.get('/', async (req, res) => {
+router.get('/', requireAuth, async (req, res) => {
   try {
     const { status } = req.query;
 
@@ -33,7 +34,7 @@ router.get('/', async (req, res) => {
 });
 
 // GET /api/leads/:id
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -87,7 +88,7 @@ router.post('/', async (req, res) => {
 });
 
 // PATCH /api/leads/:id/status
-router.patch('/:id/status', async (req, res) => {
+router.patch('/:id/status', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -117,7 +118,7 @@ router.patch('/:id/status', async (req, res) => {
 });
 
 // POST /api/leads/:id/follow-ups
-router.post('/:id/follow-ups', async (req, res) => {
+router.post('/:id/follow-ups', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { note, method, scheduled_at } = req.body;
@@ -151,7 +152,7 @@ router.post('/:id/follow-ups', async (req, res) => {
 });
 
 // DELETE /api/leads/:id
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -171,5 +172,10 @@ router.delete('/:id', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// Exposed for tests (setup/teardown) — the router itself remains the
+// default export so `app.use('/api/leads', require('./routes/leads'))`
+// in server.js keeps working unchanged.
+router.pool = pool;
 
 module.exports = router;

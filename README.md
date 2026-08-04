@@ -27,11 +27,20 @@ Lead Intake Pipeline is a lightweight web application that helps small businesse
 ## Features
 
 - Public lead intake form for capturing new prospects
-- Admin dashboard with status filters and lead counts
-- Expandable lead detail view for reviewing a lead at a glance
+- Password-protected admin dashboard (single shared admin password — see Authentication below)
+- Status filters and live lead counts
+- Expandable lead detail view for reviewing a lead at a glance, fully keyboard-accessible
 - Follow-up logging with contact method and note
 - Lead deletion with a confirmation step, cascading to its follow-ups
 - PostgreSQL persistence for leads and follow-up history
+
+## Authentication
+
+The **public intake form** (`POST /api/leads`) requires no login — anyone can submit a lead, which is the point.
+
+Everything else — viewing, filtering, updating, and deleting leads via the admin dashboard — requires logging in with a single shared admin password (`ADMIN_PASSWORD`, set as an environment variable; see Setup and Deployment below). There are no individual user accounts; this is intentionally a lightweight, single-admin scheme rather than a full multi-user auth system, appropriate for a small business with one or a few staff sharing one password.
+
+On login, the server issues an HttpOnly, signed session cookie (24-hour expiry) — there's no session table or external auth provider involved. If the session expires while you're on the dashboard, you'll be returned to the login screen automatically on the next action.
 
 ## Stack
 
@@ -54,7 +63,7 @@ Lead Intake Pipeline is a lightweight web application that helps small businesse
    ```bash
    cp .env.example .env
    ```
-   Then edit `.env` and fill in `DATABASE_URL` for your PostgreSQL instance.
+   Then edit `.env` and fill in `DATABASE_URL` for your PostgreSQL instance, and set `ADMIN_PASSWORD` to a password of your choosing (this is what you'll use to log into the admin dashboard).
 4. Initialize the database (creates the required tables):
    ```bash
    npm run db:init
@@ -65,7 +74,19 @@ Lead Intake Pipeline is a lightweight web application that helps small businesse
    ```
    (or `npm start` for production)
 
-   Then open [http://localhost:3000](http://localhost:3000) in your browser.
+   Then open [http://localhost:3000](http://localhost:3000) in your browser. Submitting a lead works immediately; click **Admin Dashboard** and log in with the `ADMIN_PASSWORD` you set to see it.
+
+## Testing
+
+Automated tests cover all 8 API routes (intake, auth, and the admin CRUD/follow-up endpoints), including validation errors, the auth-gating on every admin route, and the database-level CHECK/foreign-key constraints.
+
+```bash
+npm test
+```
+
+This runs against whatever `DATABASE_URL` is set in your environment and **truncates the `leads`/`follow_ups` tables before each test** — always point it at a scratch/local database, never at a database with real data you care about. `ADMIN_PASSWORD` doesn't need to be set beforehand; the test suite falls back to a fixed test value if it's missing.
+
+Tests also run automatically in CI (GitHub Actions, `.github/workflows/test.yml`) against a disposable Postgres service container on every push and pull request.
 
 ## Deployment
 
@@ -73,7 +94,12 @@ The app deploys to [Railway](https://railway.com) with no custom build configura
 
 1. Prerequisites: a Railway account, and a `DATABASE_URL` for a reachable Postgres instance (this project uses Supabase — the same value you're using locally in `.env`).
 2. In the Railway dashboard: **New Project → Deploy from GitHub repo**, and select this repository.
-3. In the service's **Variables** tab, add `DATABASE_URL` with your Postgres connection string. Railway automatically injects its own `PORT` into the container even if you never set one yourself — do not add a `PORT` variable manually.
+3. In the service's **Variables** tab, add:
+   - `DATABASE_URL` — your Postgres connection string.
+   - `ADMIN_PASSWORD` — the password for logging into the admin dashboard. **Required** — without it, admin login is disabled entirely (the login form will always fail with a 503) even though the public intake form keeps working.
+   - `NODE_ENV=production` — recommended. This makes the session cookie `secure` (HTTPS-only), which is only correct once the app is served over HTTPS, as Railway does.
+
+   Railway automatically injects its own `PORT` into the container even if you never set one yourself — do not add a `PORT` variable manually.
 4. Once deployed, check the **Deploy/Runtime Logs** for the line `Lead Intake Pipeline server listening on port ...` to see the actual port Railway assigned (commonly `8080`, but treat whatever the log shows as the source of truth). Then go to **Settings → Networking → Public Networking → Generate Domain**, and set **Target port** to match that exact number — Railway pre-fills this field with its own default guess (usually already correct), so in most cases you can leave it as-is, but always cross-check it against the log rather than assuming. This step (generating the domain) is required and easy to miss — unlike some other hosts, Railway does not assign a public URL automatically.
 5. No `/health` endpoint is needed: with no custom healthcheck path configured, Railway considers the deployment healthy as soon as the container starts.
 
@@ -81,14 +107,17 @@ Note: `.nvmrc` is included as a courtesy for local development with `nvm`, but R
 
 ## API Endpoints
 
-| Method | Endpoint | Description |
-| --- | --- | --- |
-| GET | `/api/leads` | List all leads (supports `?status=` filter) |
-| GET | `/api/leads/:id` | Get one lead with its follow-ups |
-| POST | `/api/leads` | Create a new lead (`name`, `email` required) |
-| PATCH | `/api/leads/:id/status` | Update a lead's status |
-| POST | `/api/leads/:id/follow-ups` | Add a follow-up note to a lead |
-| DELETE | `/api/leads/:id` | Delete a lead and its follow-ups |
+| Method | Endpoint | Auth required | Description |
+| --- | --- | --- | --- |
+| POST | `/api/leads` | No | Create a new lead (`name`, `email` required) |
+| GET | `/api/leads` | Yes | List all leads (supports `?status=` filter) |
+| GET | `/api/leads/:id` | Yes | Get one lead with its follow-ups |
+| PATCH | `/api/leads/:id/status` | Yes | Update a lead's status |
+| POST | `/api/leads/:id/follow-ups` | Yes | Add a follow-up note to a lead |
+| DELETE | `/api/leads/:id` | Yes | Delete a lead and its follow-ups |
+| POST | `/api/auth/login` | No | Log in with `{ password }`, sets the session cookie |
+| POST | `/api/auth/logout` | No | Clear the session cookie |
+| GET | `/api/auth/me` | No | Check current login status (`{ authenticated: boolean }`) |
 
 ## License
 
