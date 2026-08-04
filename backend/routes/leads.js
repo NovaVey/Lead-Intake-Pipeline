@@ -1,8 +1,18 @@
 const express = require('express');
+const cors = require('cors');
 const { Pool } = require('pg');
 const { requireAuth } = require('../middleware/auth');
+const { intakeLimiter } = require('../middleware/rateLimit');
 
 const router = express.Router();
+
+// The public intake form is meant to be embeddable from any site (a
+// small business's own website, a landing page builder, etc.), so it
+// gets its own permissive CORS policy rather than inheriting one from
+// the app as a whole — everything else in this router requires the
+// admin session cookie, which browsers won't attach cross-site anyway
+// (the cookie is issued with SameSite=Lax).
+const publicCors = cors();
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -126,7 +136,8 @@ router.get('/:id', requireAuth, requireValidId, asyncRoute(async (req, res) => {
 }));
 
 // POST /api/leads (public — no auth required)
-router.post('/', asyncRoute(async (req, res) => {
+router.options('/', publicCors);
+router.post('/', publicCors, intakeLimiter, asyncRoute(async (req, res) => {
   const name = trimmed(req.body.name);
   const email = trimmed(req.body.email);
   const phone = trimmed(req.body.phone) || null;

@@ -5,11 +5,12 @@ const {
   clearSessionCookie,
   isAuthenticated,
 } = require('../middleware/auth');
+const { loginLimiter } = require('../middleware/rateLimit');
 
 const router = express.Router();
 
 // POST /api/auth/login
-router.post('/login', (req, res) => {
+router.post('/login', loginLimiter, (req, res) => {
   if (!process.env.ADMIN_PASSWORD) {
     return res.status(503).json({ error: 'Admin login is not configured' });
   }
