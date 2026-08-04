@@ -1,7 +1,7 @@
 require('dotenv/config');
 
 const express = require('express');
-const cors = require('cors');
+const morgan = require('morgan');
 const cookieParser = require('cookie-parser');
 const path = require('path');
 
@@ -15,7 +15,17 @@ if (!process.env.ADMIN_PASSWORD) {
   console.warn('WARNING: ADMIN_PASSWORD is not set. Admin login will be unavailable until it is configured.');
 }
 
-app.use(cors());
+// No blanket CORS here: the frontend and API are served from the same
+// origin, so the SPA needs none, and admin routes are protected by a
+// SameSite=Lax session cookie browsers won't send cross-site anyway.
+// The one route that does need to be reachable from other origins —
+// the public intake form — sets its own scoped CORS policy in
+// routes/leads.js.
+// Quiet during the test suite — 43+ requests per run don't need a
+// request log cluttering the test output.
+if (process.env.NODE_ENV !== 'test') {
+  app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+}
 app.use(express.json());
 app.use(cookieParser());
 
@@ -35,9 +45,39 @@ app.get(/^\/(?!api).*/, (req, res) => {
 // when required by the test suite, which needs the app without a live
 // network listener.
 if (require.main === module) {
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`Lead Intake Pipeline server listening on port ${PORT}`);
   });
+
+  // Platforms like Railway send SIGTERM before killing the container on
+  // a deploy or restart. Without this, in-flight requests get dropped
+  // and the pg pool's connections are torn down uncleanly rather than
+  // closed. Stop accepting new connections first, let existing ones
+  // finish, then close the DB pool.
+  const shutdown = (signal) => {
+    console.log(`${signal} received: shutting down gracefully`);
+    server.close(async (err) => {
+      if (err) {
+        console.error('Error while closing HTTP server:', err);
+      }
+      try {
+        await leadsRouter.pool.end();
+      } catch (poolErr) {
+        console.error('Error while closing database pool:', poolErr);
+      }
+      process.exit(err ? 1 : 0);
+    });
+
+    // If something is still holding a connection open 10s in, exit
+    // anyway rather than hang the platform's shutdown/restart forever.
+    setTimeout(() => {
+      console.error('Forcing shutdown after 10s timeout');
+      process.exit(1);
+    }, 10000).unref();
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 module.exports = app;

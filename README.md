@@ -110,14 +110,47 @@ Note: `.nvmrc` is included as a courtesy for local development with `nvm`, but R
 | Method | Endpoint | Auth required | Description |
 | --- | --- | --- | --- |
 | POST | `/api/leads` | No | Create a new lead (`name`, `email` required) |
-| GET | `/api/leads` | Yes | List all leads (supports `?status=` filter) |
+| GET | `/api/leads` | Yes | List leads (supports `?status=` and `?search=` filters) |
 | GET | `/api/leads/:id` | Yes | Get one lead with its follow-ups |
 | PATCH | `/api/leads/:id/status` | Yes | Update a lead's status |
 | POST | `/api/leads/:id/follow-ups` | Yes | Add a follow-up note to a lead |
+| PATCH | `/api/leads/:id/follow-ups/:followUpId` | Yes | Mark a follow-up complete/incomplete |
 | DELETE | `/api/leads/:id` | Yes | Delete a lead and its follow-ups |
 | POST | `/api/auth/login` | No | Log in with `{ password }`, sets the session cookie |
 | POST | `/api/auth/logout` | No | Clear the session cookie |
 | GET | `/api/auth/me` | No | Check current login status (`{ authenticated: boolean }`) |
+
+`POST /api/leads` and `POST /api/auth/login` are both rate-limited per IP (20 submissions / 10 login attempts per 15 minutes) since neither requires auth to call.
+
+## Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `ADMIN_PASSWORD` | Yes, for admin login | Shared password for the admin dashboard. Without it, `POST /api/auth/login` always returns 503 — the public intake form still works. |
+| `PORT` | No | Defaults to `3000` locally. Railway injects its own at runtime — see Deployment. |
+| `NODE_ENV` | No | Set to `production` on any real deployment so the session cookie is issued with `secure: true` (HTTPS-only) and request logging switches to the `combined` (Apache-style) format. |
+
+## Architecture
+
+A single Express process serves both the API and the static frontend — there's no separate frontend build/deploy step or client-side framework. Requests flow: browser → Express → `pg` connection pool → PostgreSQL. The admin dashboard is a single HTML page that fetches JSON from `/api/leads*` and re-renders in place; there's no client-side router beyond showing/hiding views.
+
+```
+Public visitor ──POST /api/leads──▶ Express ──▶ PostgreSQL (leads, follow_ups)
+                                        ▲
+Admin (logged in) ──GET/PATCH/DELETE───┘
+                     (session cookie required)
+```
+
+## Known limitations
+
+This is a portfolio-scale project, not a production SaaS — a few things are intentionally simple:
+
+- **Single shared admin password**, not per-user accounts. Fine for one or a few staff who already trust each other; not appropriate if you need per-user audit trails or revocable access.
+- **No email uniqueness constraint** on leads — the same person can submit the intake form more than once and each submission becomes its own lead row, rather than being merged or deduplicated. This is by design: two genuine inquiries from the same address (weeks apart, different service interest) shouldn't silently overwrite each other, and a real deduplication feature would need a UI for reviewing/merging matches rather than a blind uniqueness constraint.
+- **No pagination** — `GET /api/leads` returns up to 500 rows in one response. That comfortably covers a small business's lead volume; a higher-traffic deployment would need cursor-based pagination instead of the hard cap.
+- **No file attachments** on leads or follow-ups.
+- **No outbound email/SMS** — follow-ups are logged manually; the app doesn't send anything on a business's behalf.
 
 ## License
 

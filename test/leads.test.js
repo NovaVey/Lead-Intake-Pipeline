@@ -75,6 +75,31 @@ test('POST /api/leads - 400 on empty body', async () => {
   await request(app).post('/api/leads').send({}).expect(400);
 });
 
+test('POST /api/leads - 400 on a malformed email address', async () => {
+  const res = await request(app)
+    .post('/api/leads')
+    .send({ name: 'Jane Smith', email: 'not-an-email' })
+    .expect(400);
+  assert.ok(res.body.error);
+});
+
+test('POST /api/leads - 400 when a field exceeds its length cap', async () => {
+  const res = await request(app)
+    .post('/api/leads')
+    .send({ name: 'A'.repeat(256), email: 'jane@example.com' })
+    .expect(400);
+  assert.ok(res.body.error);
+});
+
+test('POST /api/leads - trims leading/trailing whitespace on string fields', async () => {
+  const res = await request(app)
+    .post('/api/leads')
+    .send({ name: '  Jane Smith  ', email: '  jane@example.com  ' })
+    .expect(201);
+  assert.equal(res.body.name, 'Jane Smith');
+  assert.equal(res.body.email, 'jane@example.com');
+});
+
 // ---------- Auth ----------
 
 test('POST /api/auth/login - 401 on wrong password', async () => {
@@ -154,6 +179,28 @@ test('GET /api/leads - 200 array, and ?status= filters correctly', async () => {
   assert.equal(contactedOnly.body[0].id, b.id);
 });
 
+test('GET /api/leads - 400 on an invalid ?status= filter', async () => {
+  const agent = await loginAgent();
+  await agent.get('/api/leads?status=bogus').expect(400);
+});
+
+test('GET /api/leads - ?search= matches name, email, and business_name, case-insensitively', async () => {
+  const agent = await loginAgent();
+  const a = await createLead({ name: 'Jane Smith', email: 'jane@smithplumbing.com', business_name: 'Smith Plumbing' });
+  await createLead({ name: 'Bob Jones', email: 'bob@example.com', business_name: 'Jones Roofing' });
+
+  const byName = await agent.get('/api/leads?search=jane').expect(200);
+  assert.equal(byName.body.length, 1);
+  assert.equal(byName.body[0].id, a.id);
+
+  const byBusiness = await agent.get('/api/leads?search=PLUMBING').expect(200);
+  assert.equal(byBusiness.body.length, 1);
+  assert.equal(byBusiness.body[0].id, a.id);
+
+  const noMatch = await agent.get('/api/leads?search=nonexistent').expect(200);
+  assert.equal(noMatch.body.length, 0);
+});
+
 // ---------- GET /api/leads/:id (authenticated) ----------
 
 test('GET /api/leads/:id - includes a nested follow_ups array', async () => {
@@ -221,6 +268,68 @@ test('POST /api/leads/:id/follow-ups - 400 when note is missing', async () => {
 test('POST /api/leads/:id/follow-ups - 404 when the parent lead does not exist', async () => {
   const agent = await loginAgent();
   await agent.post('/api/leads/999999/follow-ups').send({ note: 'x' }).expect(404);
+});
+
+test('POST /api/leads/:id/follow-ups - 400 on an invalid method', async () => {
+  const agent = await loginAgent();
+  const lead = await createLead();
+  await agent.post(`/api/leads/${lead.id}/follow-ups`).send({ note: 'x', method: 'Carrier Pigeon' }).expect(400);
+});
+
+// ---------- PATCH /api/leads/:id/follow-ups/:followUpId (authenticated) ----------
+
+test('PATCH /api/leads/:id/follow-ups/:followUpId - 401 without auth', async () => {
+  const agent = await loginAgent();
+  const lead = await createLead();
+  const fu = (await agent.post(`/api/leads/${lead.id}/follow-ups`).send({ note: 'x' }).expect(201)).body;
+  await request(app).patch(`/api/leads/${lead.id}/follow-ups/${fu.id}`).send({ completed: true }).expect(401);
+});
+
+test('PATCH /api/leads/:id/follow-ups/:followUpId - marks a follow-up complete and can un-mark it', async () => {
+  const agent = await loginAgent();
+  const lead = await createLead();
+  const fu = (await agent.post(`/api/leads/${lead.id}/follow-ups`).send({ note: 'x' }).expect(201)).body;
+  assert.equal(fu.completed_at, null);
+
+  const completed = await agent
+    .patch(`/api/leads/${lead.id}/follow-ups/${fu.id}`)
+    .send({ completed: true })
+    .expect(200);
+  assert.ok(completed.body.completed_at);
+
+  const uncompleted = await agent
+    .patch(`/api/leads/${lead.id}/follow-ups/${fu.id}`)
+    .send({ completed: false })
+    .expect(200);
+  assert.equal(uncompleted.body.completed_at, null);
+});
+
+test('PATCH /api/leads/:id/follow-ups/:followUpId - 400 when completed is not a boolean', async () => {
+  const agent = await loginAgent();
+  const lead = await createLead();
+  const fu = (await agent.post(`/api/leads/${lead.id}/follow-ups`).send({ note: 'x' }).expect(201)).body;
+  await agent.patch(`/api/leads/${lead.id}/follow-ups/${fu.id}`).send({ completed: 'yes' }).expect(400);
+});
+
+test('PATCH /api/leads/:id/follow-ups/:followUpId - 400 on non-numeric followUpId', async () => {
+  const agent = await loginAgent();
+  const lead = await createLead();
+  await agent.patch(`/api/leads/${lead.id}/follow-ups/abc`).send({ completed: true }).expect(400);
+});
+
+test('PATCH /api/leads/:id/follow-ups/:followUpId - 404 when the follow-up does not belong to the given lead', async () => {
+  const agent = await loginAgent();
+  const leadA = await createLead({ name: 'A', email: 'a@example.com' });
+  const leadB = await createLead({ name: 'B', email: 'b@example.com' });
+  const fu = (await agent.post(`/api/leads/${leadA.id}/follow-ups`).send({ note: 'x' }).expect(201)).body;
+
+  await agent.patch(`/api/leads/${leadB.id}/follow-ups/${fu.id}`).send({ completed: true }).expect(404);
+});
+
+test('PATCH /api/leads/:id/follow-ups/:followUpId - 404 on a nonexistent follow-up id', async () => {
+  const agent = await loginAgent();
+  const lead = await createLead();
+  await agent.patch(`/api/leads/${lead.id}/follow-ups/999999`).send({ completed: true }).expect(404);
 });
 
 // ---------- DELETE /api/leads/:id (authenticated) ----------
