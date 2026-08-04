@@ -852,7 +852,6 @@
     activeFilter: 'all',
     expandedId: null,
     detailCache: {}, // id -> full lead object with follow_ups
-    dashboardLoaded: false,
     authenticated: false
   };
 
@@ -975,9 +974,11 @@
     state.authenticated = true;
     loginWrap.style.display = 'none';
     dashboardMain.style.display = 'block';
-    if (!state.dashboardLoaded) {
-      loadLeads();
-    }
+    // Always refetch on entering the dashboard (not just the first time)
+    // so leads submitted via the public form while the dashboard was
+    // last loaded — or added from another session — actually show up,
+    // instead of silently showing stale cached data.
+    loadLeads();
   }
 
   async function enterDashboard() {
@@ -997,7 +998,6 @@
   // (session expired or never established) so the user is dropped back
   // to the login screen instead of seeing a confusing generic error.
   function handleAuthExpired() {
-    state.dashboardLoaded = false;
     showLogin('Your session expired. Please log in again.');
   }
 
@@ -1040,7 +1040,6 @@
     state.leads = [];
     state.detailCache = {};
     state.expandedId = null;
-    state.dashboardLoaded = false;
     showLogin();
   });
 
@@ -1162,7 +1161,6 @@
     try {
       var data = await safeFetchJson('/api/leads');
       state.leads = Array.isArray(data) ? data : [];
-      state.dashboardLoaded = true;
       renderTabs();
       renderLeadList();
     } catch (err) {
