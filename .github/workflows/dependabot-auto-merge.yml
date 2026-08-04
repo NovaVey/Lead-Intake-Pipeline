@@ -1,0 +1,71 @@
+name: Dependabot auto-merge
+
+# Runs after the Test workflow finishes on a Dependabot PR. Patch/minor
+# bumps that pass CI are merged automatically; major version bumps
+# always need a human to review them first, since those are the ones
+# most likely to carry breaking changes (see e.g. the Express 4->5 PR
+# Dependabot opened, which is not a drop-in replacement).
+#
+# Uses workflow_run rather than pull_request so this only ever acts on
+# a commit that has *already* finished testing — no reliance on branch
+# protection / required-status-check config to make auto-merge "wait".
+on:
+  workflow_run:
+    workflows: ["Test"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge if this is a patch/minor Dependabot bump
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+
+          pr_json=$(gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number,author,title --jq '.[0] // empty')
+          if [ -z "$pr_json" ]; then
+            echo "No open PR found for branch $BRANCH (already merged/closed?). Skipping."
+            exit 0
+          fi
+
+          author=$(echo "$pr_json" | jq -r '.author.login')
+          if [ "$author" != "dependabot[bot]" ] && [ "$author" != "app/dependabot" ]; then
+            echo "PR author is '$author', not Dependabot. Skipping."
+            exit 0
+          fi
+
+          number=$(echo "$pr_json" | jq -r '.number')
+          title=$(echo "$pr_json" | jq -r '.title')
+          echo "PR #$number: $title"
+
+          # Dependabot titles look like "Bump <name> from <old> to <new>".
+          # Comparing the leading numeric component of old vs new is
+          # enough to distinguish a major bump (16.x -> 17.x, 4 -> 7)
+          # from a patch/minor one (16.6.1 -> 16.6.2) without needing an
+          # extra action just to parse semver.
+          old_major=$(echo "$title" | grep -oP 'from \K[0-9]+' || true)
+          new_major=$(echo "$title" | grep -oP 'to \K[0-9]+' || true)
+
+          if [ -z "$old_major" ] || [ -z "$new_major" ]; then
+            echo "Could not parse version numbers from the title — leaving for manual review."
+            exit 0
+          fi
+
+          if [ "$old_major" != "$new_major" ]; then
+            echo "Major version bump ($old_major -> $new_major) — leaving for manual review."
+            exit 0
+          fi
+
+          echo "Patch/minor bump and tests already passed on this commit — merging."
+          gh pr merge "$number" --repo "$REPO" --squash --delete-branch
