@@ -35,6 +35,22 @@
     box-sizing: border-box;
   }
 
+  /* Visually hidden but still announced by screen readers — used for
+     labels that would be visually redundant next to their control
+     (e.g. a status <select> inside a "Status" section heading) but
+     still need a real accessible name. */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
   html, body {
     margin: 0;
     padding: 0;
@@ -273,6 +289,37 @@
     font-size: 0.9rem;
   }
 
+  .toast-region {
+    position: fixed;
+    bottom: var(--space-5);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1100;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    align-items: center;
+    pointer-events: none;
+  }
+
+  .toast {
+    background: var(--navy-dark);
+    color: #fff;
+    padding: var(--space-3) var(--space-5);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(15, 31, 61, 0.35);
+    font-size: 0.9rem;
+    font-weight: 600;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+  }
+
+  .toast.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
   .modal-overlay {
     position: fixed;
     inset: 0;
@@ -360,6 +407,12 @@
   .login-card {
     max-width: 400px;
     margin: 0 auto;
+  }
+
+  .search-field {
+    margin-top: var(--space-4);
+    margin-bottom: 0;
+    max-width: 360px;
   }
 
   .status-tabs {
@@ -600,6 +653,28 @@
     border-radius: 6px;
   }
 
+  .followup-item.completed .fu-note {
+    text-decoration: line-through;
+    color: var(--text-muted);
+  }
+
+  .fu-complete-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    width: fit-content;
+  }
+
+  .fu-complete-row input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+    cursor: pointer;
+  }
+
   .followup-form {
     display: flex;
     flex-direction: column;
@@ -736,7 +811,7 @@
           <p>Fill out the form below and we'll reach out to discuss how we can help.</p>
         </div>
 
-        <div id="intake-error" class="alert alert-error" style="display:none;"></div>
+        <div id="intake-error" class="alert alert-error" style="display:none;" role="alert"></div>
 
         <form id="intake-form" novalidate>
           <div class="field-grid">
@@ -813,6 +888,11 @@
         <button type="button" class="btn btn-secondary btn-small" id="logout-btn">Log Out</button>
       </div>
 
+      <div class="field full search-field">
+        <label for="lead-search">Search leads</label>
+        <input type="search" id="lead-search" placeholder="Search by name, email, or business...">
+      </div>
+
       <div class="status-tabs" id="status-tabs">
         <!-- tabs injected by JS -->
       </div>
@@ -828,6 +908,8 @@
   </section>
 
 </main>
+
+<div id="toast-region" aria-live="polite" class="toast-region"></div>
 
 <div class="modal-overlay" id="confirm-modal-overlay" style="display:none;">
   <div class="modal-dialog" role="dialog" aria-modal="true" aria-describedby="confirm-modal-message">
@@ -850,6 +932,7 @@
   var state = {
     leads: [],
     activeFilter: 'all',
+    searchQuery: '',
     expandedId: null,
     detailCache: {}, // id -> full lead object with follow_ups
     authenticated: false
@@ -858,14 +941,36 @@
   // ---------- Helpers ----------
   function qs(id) { return document.getElementById(id); }
 
-  function escapeHtml(str) {
-    if (str === null || str === undefined) return '';
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
+  function clearEl(el) {
+    el.innerHTML = '';
+  }
+
+  // Builds the same spinner + label markup used everywhere something is
+  // loading, instead of repeating the same innerHTML string at each
+  // call site.
+  function buildLoadingState(text) {
+    var el = document.createElement('div');
+    el.className = 'loading-state';
+    var spinner = document.createElement('div');
+    spinner.className = 'spinner';
+    el.appendChild(spinner);
+    var label = document.createElement('div');
+    label.textContent = text;
+    el.appendChild(label);
+    return el;
+  }
+
+  function buildEmptyState(emoji, text) {
+    var el = document.createElement('div');
+    el.className = 'card empty-state';
+    var emojiEl = document.createElement('div');
+    emojiEl.className = 'emoji';
+    emojiEl.textContent = emoji;
+    el.appendChild(emojiEl);
+    var textEl = document.createElement('div');
+    textEl.textContent = text;
+    el.appendChild(textEl);
+    return el;
   }
 
   function formatDate(iso) {
@@ -1040,6 +1145,8 @@
     state.leads = [];
     state.detailCache = {};
     state.expandedId = null;
+    state.searchQuery = '';
+    qs('lead-search').value = '';
     showLogin();
   });
 
@@ -1147,14 +1254,16 @@
     });
   }
 
+  qs('lead-search').addEventListener('input', function (e) {
+    state.searchQuery = e.target.value;
+    renderLeadList();
+  });
+
   // ---------- Dashboard: load leads ----------
   async function loadLeads() {
     var content = qs('dashboard-content');
-    content.innerHTML = '';
-    var loading = document.createElement('div');
-    loading.className = 'loading-state';
-    loading.innerHTML = '<div class="spinner"></div><div>Loading leads...</div>';
-    content.appendChild(loading);
+    clearEl(content);
+    content.appendChild(buildLoadingState('Loading leads...'));
 
     renderTabs();
 
@@ -1168,9 +1277,10 @@
         handleAuthExpired();
         return;
       }
-      content.innerHTML = '';
+      clearEl(content);
       var errBox = document.createElement('div');
       errBox.className = 'alert alert-error';
+      errBox.setAttribute('role', 'alert');
       errBox.textContent = 'Could not load leads: ' + (err.message || 'unknown error');
       content.appendChild(errBox);
 
@@ -1186,29 +1296,36 @@
 
   // ---------- Dashboard: render lead list ----------
   function getFilteredLeads() {
-    if (state.activeFilter === 'all') return state.leads;
-    return state.leads.filter(function (l) { return l.status === state.activeFilter; });
+    var result = state.activeFilter === 'all'
+      ? state.leads
+      : state.leads.filter(function (l) { return l.status === state.activeFilter; });
+
+    var query = (state.searchQuery || '').trim().toLowerCase();
+    if (!query) return result;
+
+    return result.filter(function (l) {
+      return (l.name && l.name.toLowerCase().indexOf(query) !== -1) ||
+        (l.email && l.email.toLowerCase().indexOf(query) !== -1) ||
+        (l.business_name && l.business_name.toLowerCase().indexOf(query) !== -1);
+    });
   }
 
   function renderLeadList() {
     var content = qs('dashboard-content');
-    content.innerHTML = '';
+    clearEl(content);
 
     var filtered = getFilteredLeads();
 
     if (state.leads.length === 0) {
-      var emptyAll = document.createElement('div');
-      emptyAll.className = 'card empty-state';
-      emptyAll.innerHTML = '<div class="emoji">📭</div><div>No leads yet. New submissions will show up here.</div>';
-      content.appendChild(emptyAll);
+      content.appendChild(buildEmptyState('📭', 'No leads yet. New submissions will show up here.'));
       return;
     }
 
     if (filtered.length === 0) {
-      var emptyFiltered = document.createElement('div');
-      emptyFiltered.className = 'card empty-state';
-      emptyFiltered.innerHTML = '<div class="emoji">🔍</div><div>No leads match this status filter.</div>';
-      content.appendChild(emptyFiltered);
+      var message = (state.searchQuery || '').trim()
+        ? 'No leads match your search.'
+        : 'No leads match this status filter.';
+      content.appendChild(buildEmptyState('🔍', message));
       return;
     }
 
@@ -1362,9 +1479,14 @@
   }
 
   function buildDetailDom(lead, detailEl) {
-    detailEl.innerHTML = '';
+    clearEl(detailEl);
+    detailEl.appendChild(buildInfoSection(lead));
+    detailEl.appendChild(buildStatusSection(lead));
+    detailEl.appendChild(buildFollowUpsSection(lead));
+  }
 
-    // Contact / message section
+  // Contact / message section
+  function buildInfoSection(lead) {
     var infoSection = document.createElement('div');
     infoSection.className = 'detail-section';
     var infoHeading = document.createElement('h3');
@@ -1403,9 +1525,11 @@
     sourceRow.textContent = 'Source: ' + (lead.source || 'website') + ' — Submitted ' + formatDateTime(lead.created_at);
     infoSection.appendChild(sourceRow);
 
-    detailEl.appendChild(infoSection);
+    return infoSection;
+  }
 
-    // Status update section
+  // Status update section
+  function buildStatusSection(lead) {
     var statusSection = document.createElement('div');
     statusSection.className = 'detail-section';
     var statusHeading = document.createElement('h3');
@@ -1415,8 +1539,15 @@
     var statusRow = document.createElement('div');
     statusRow.className = 'status-select-row';
 
+    var statusLabelId = 'status-select-label-' + lead.id;
+    var statusLabel = document.createElement('label');
+    statusLabel.id = statusLabelId;
+    statusLabel.className = 'sr-only';
+    statusLabel.textContent = 'Status for ' + (lead.name || 'this lead');
+
     var statusSelect = document.createElement('select');
     statusSelect.setAttribute('data-role', 'status-select');
+    statusSelect.setAttribute('aria-labelledby', statusLabelId);
     STATUSES.forEach(function (s) {
       var opt = document.createElement('option');
       opt.value = s;
@@ -1428,17 +1559,23 @@
     var statusMsg = document.createElement('span');
     statusMsg.className = 'hint';
     statusMsg.setAttribute('data-role', 'status-msg');
+    statusMsg.setAttribute('aria-live', 'polite');
 
     statusSelect.addEventListener('change', function () {
       updateLeadStatus(lead.id, statusSelect.value, statusSelect, statusMsg);
     });
 
+    statusRow.appendChild(statusLabel);
     statusRow.appendChild(statusSelect);
     statusRow.appendChild(statusMsg);
     statusSection.appendChild(statusRow);
-    detailEl.appendChild(statusSection);
+    return statusSection;
+  }
 
-    // Follow-ups section
+  // Follow-ups section: existing follow-up list plus the add-follow-up
+  // form and the delete-lead button (which lives here for layout
+  // reasons — it sits to the right of the follow-up form's actions).
+  function buildFollowUpsSection(lead) {
     var fuSection = document.createElement('div');
     fuSection.className = 'detail-section';
     var fuHeading = document.createElement('h3');
@@ -1458,13 +1595,16 @@
       fuList.appendChild(fuEmpty);
     } else {
       followUps.forEach(function (fu) {
-        fuList.appendChild(buildFollowUpItem(fu));
+        fuList.appendChild(buildFollowUpItem(fu, lead.id));
       });
     }
 
     fuSection.appendChild(fuList);
+    fuSection.appendChild(buildFollowUpForm(lead, fuList));
+    return fuSection;
+  }
 
-    // Add follow-up form
+  function buildFollowUpForm(lead, fuList) {
     var fuForm = document.createElement('form');
     fuForm.className = 'followup-form';
     fuForm.setAttribute('data-role', 'followup-form');
@@ -1473,12 +1613,16 @@
     fuErrorBox.className = 'alert alert-error';
     fuErrorBox.style.display = 'none';
     fuErrorBox.setAttribute('data-role', 'followup-error');
+    fuErrorBox.setAttribute('role', 'alert');
 
+    var noteFieldId = 'followup-note-' + lead.id;
     var noteField = document.createElement('div');
     noteField.className = 'field full';
     var noteLabel = document.createElement('label');
+    noteLabel.setAttribute('for', noteFieldId);
     noteLabel.textContent = 'Add a follow-up note';
     var noteTextarea = document.createElement('textarea');
+    noteTextarea.id = noteFieldId;
     noteTextarea.setAttribute('data-role', 'followup-note');
     noteTextarea.placeholder = 'e.g. Called to discuss pricing, will send proposal Friday...';
     noteField.appendChild(noteLabel);
@@ -1487,7 +1631,13 @@
     var formRow = document.createElement('div');
     formRow.className = 'followup-form-row';
 
+    var methodFieldId = 'followup-method-' + lead.id;
+    var methodLabel = document.createElement('label');
+    methodLabel.setAttribute('for', methodFieldId);
+    methodLabel.className = 'sr-only';
+    methodLabel.textContent = 'Follow-up method';
     var methodSelect = document.createElement('select');
+    methodSelect.id = methodFieldId;
     methodSelect.setAttribute('data-role', 'followup-method');
     ['Email', 'Phone', 'Text'].forEach(function (m) {
       var opt = document.createElement('option');
@@ -1509,6 +1659,7 @@
       deleteLead(lead.id, deleteBtn, fuErrorBox);
     });
 
+    formRow.appendChild(methodLabel);
     formRow.appendChild(methodSelect);
     formRow.appendChild(fuSubmitBtn);
     formRow.appendChild(deleteBtn);
@@ -1522,13 +1673,13 @@
       submitFollowUp(lead.id, noteTextarea, methodSelect, fuList, fuErrorBox, fuSubmitBtn);
     });
 
-    fuSection.appendChild(fuForm);
-    detailEl.appendChild(fuSection);
+    return fuForm;
   }
 
-  function buildFollowUpItem(fu) {
+  function buildFollowUpItem(fu, leadId) {
     var item = document.createElement('div');
-    item.className = 'followup-item';
+    item.className = 'followup-item' + (fu.completed_at ? ' completed' : '');
+    item.id = 'followup-item-' + fu.id;
 
     var top = document.createElement('div');
     top.className = 'fu-top';
@@ -1545,10 +1696,71 @@
     item.appendChild(top);
 
     var noteDiv = document.createElement('div');
+    noteDiv.className = 'fu-note';
     noteDiv.textContent = fu.note || '';
     item.appendChild(noteDiv);
 
+    var completeRow = document.createElement('label');
+    completeRow.className = 'fu-complete-row';
+
+    var checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = !!fu.completed_at;
+    checkbox.setAttribute('data-role', 'followup-complete-checkbox');
+
+    var checkboxText = document.createElement('span');
+    checkboxText.textContent = 'Mark complete';
+    checkboxText.setAttribute('data-role', 'followup-complete-label');
+
+    completeRow.appendChild(checkbox);
+    completeRow.appendChild(checkboxText);
+    item.appendChild(completeRow);
+
+    checkbox.addEventListener('change', function () {
+      toggleFollowUpComplete(leadId, fu, checkbox, item, checkboxText);
+    });
+
     return item;
+  }
+
+  // ---------- Follow-up completion toggle ----------
+  async function toggleFollowUpComplete(leadId, fu, checkboxEl, itemEl, labelTextEl) {
+    var desired = checkboxEl.checked;
+    checkboxEl.disabled = true;
+    var previousLabel = labelTextEl.textContent;
+    labelTextEl.textContent = 'Saving...';
+
+    try {
+      var updated = await safeFetchJson(
+        '/api/leads/' + encodeURIComponent(leadId) + '/follow-ups/' + encodeURIComponent(fu.id),
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ completed: desired })
+        }
+      );
+
+      fu.completed_at = updated.completed_at;
+      itemEl.classList.toggle('completed', !!updated.completed_at);
+      labelTextEl.textContent = 'Mark complete';
+
+      var cached = state.detailCache[leadId];
+      if (cached && Array.isArray(cached.follow_ups)) {
+        cached.follow_ups = cached.follow_ups.map(function (f) {
+          return f.id === fu.id ? Object.assign({}, f, { completed_at: updated.completed_at }) : f;
+        });
+      }
+    } catch (err) {
+      if (err.status === 401) {
+        handleAuthExpired();
+        return;
+      }
+      // revert the checkbox to its prior state on failure
+      checkboxEl.checked = !desired;
+      labelTextEl.textContent = previousLabel;
+    } finally {
+      checkboxEl.disabled = false;
+    }
   }
 
   // ---------- Status update ----------
@@ -1637,7 +1849,7 @@
       var emptyHint = fuListEl.querySelector('[data-role="followup-empty"]');
       if (emptyHint) emptyHint.remove();
 
-      fuListEl.appendChild(buildFollowUpItem(created));
+      fuListEl.appendChild(buildFollowUpItem(created, leadId));
 
       noteTextarea.value = '';
       methodSelect.value = 'Email';
@@ -1652,6 +1864,29 @@
       submitBtn.disabled = false;
       submitBtn.textContent = 'Log Follow-up';
     }
+  }
+
+  // ---------- Toast notifications ----------
+  function showToast(message) {
+    var region = qs('toast-region');
+    var toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = message;
+    region.appendChild(toast);
+
+    // Two rAFs so the initial (opacity: 0) state actually paints before
+    // the .visible class is added — otherwise the browser can coalesce
+    // both style changes into one frame and the transition never plays.
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        toast.classList.add('visible');
+      });
+    });
+
+    setTimeout(function () {
+      toast.classList.remove('visible');
+      setTimeout(function () { toast.remove(); }, 250);
+    }, 3000);
   }
 
   // ---------- Custom confirm modal ----------
@@ -1733,6 +1968,7 @@
 
       renderTabs();
       renderLeadList();
+      showToast(label + ' was deleted.');
     } catch (err) {
       if (err.status === 401) {
         handleAuthExpired();
