@@ -11,6 +11,14 @@ const authRouter = require('./routes/auth');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Railway (and most PaaS hosts) put the app behind a single reverse-proxy
+// hop that sets X-Forwarded-For. Without this, Express won't trust that
+// header for req.ip, and express-rate-limit refuses to key off it —
+// throwing ERR_ERL_UNEXPECTED_X_FORWARDED_FOR on every rate-limited
+// request instead of rate-limiting by real client IP. `1` trusts exactly
+// one hop, matching Railway's setup, rather than the whole chain.
+app.set('trust proxy', 1);
+
 if (!process.env.ADMIN_PASSWORD) {
   console.warn('WARNING: ADMIN_PASSWORD is not set. Admin login will be unavailable until it is configured.');
 }

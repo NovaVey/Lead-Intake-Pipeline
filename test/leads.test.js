@@ -44,6 +44,16 @@ after(async () => {
   await pool.end();
 });
 
+// ---------- App config ----------
+
+test('trust proxy is set to trust exactly one hop (Railway\'s reverse proxy)', () => {
+  // Regression test for ERR_ERL_UNEXPECTED_X_FORWARDED_FOR: without this,
+  // express-rate-limit can't safely key off X-Forwarded-For behind
+  // Railway's proxy. `1` (not `true`) trusts exactly one hop rather than
+  // the whole chain.
+  assert.equal(app.get('trust proxy'), 1);
+});
+
 // ---------- POST /api/leads (public, no auth) ----------
 
 test('POST /api/leads - creates a lead with defaults, no auth required', async () => {
